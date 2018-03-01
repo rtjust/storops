@@ -17,6 +17,7 @@ from __future__ import unicode_literals
 
 import logging
 from itertools import chain
+import threading
 
 import six
 
@@ -59,6 +60,10 @@ class UnitySnapHostAccessList(UnityResourceList):
 
 
 DUMMY_LUN_NAME = 'storops_dummy_lun'
+DUMMY_LUN_DESCRIPTION = ('This LUN is created by storops. It is not used for '
+                         'storing user data, but will be used to occupy the '
+                         'hlu 0 before the first user LUN is attached. This '
+                         'could workaround the LUNZ issue on Unity.')
 
 
 class UnityHost(UnityResource):
@@ -158,8 +163,13 @@ class UnityHost(UnityResource):
 
         return ret
 
-    def detach(self, lun_or_snap):
-        return lun_or_snap.detach_from(self)
+    def detach(self, lun_or_snap, lock=threading.Lock()):
+        resp = lun_or_snap.detach_from(self)
+        with lock:
+            all_host_lun = self._get_host_lun()
+            if len(all_host_lun) == 1:
+                self._detach_dummy_lun()
+        return resp
 
     def detach_alu(self, lun):
         log.warn('Method detach_alu is deprecated. Use detach instead.')
@@ -172,7 +182,10 @@ class UnityHost(UnityResource):
         if not lun_list:
             try:
                 pool_list = pool_module.UnityPoolList.get(self._cli)
-                dummy_lun = pool_list[0].create_lun(lun_name=DUMMY_LUN_NAME)
+                dummy_lun = pool_list[0].create_lun(
+                    lun_name=DUMMY_LUN_NAME, description=DUMMY_LUN_DESCRIPTION)
+            except ex.UnityLunNameInUseError:
+                pass
             except Exception as err:
                 # Ignore all errors of creating dummy lun.
                 log.warn('Failed to create dummy lun. Message: {}'.format(err))
@@ -189,16 +202,28 @@ class UnityHost(UnityResource):
                 # Ignore all errors of attaching dummy lun.
                 log.warn('Failed to attach dummy lun. Message: {}'.format(err))
 
-    def attach(self, lun_or_snap, skip_hlu_0=False):
+    def _detach_dummy_lun(self):
+        import storops.unity.resource.lun as lun_module
+        lun_list = lun_module.UnityLunList.get(self._cli, name=DUMMY_LUN_NAME)
+        if lun_list:
+            dummy_lun = lun_list[0]
+            try:
+                dummy_lun.detach_from(self)
+            except Exception as err:
+                # Ignore all errors of detaching dummy lun.
+                log.warn('Failed to detach dummy lun. Message: {}'.format(err))
+
+    def attach(self, lun_or_snap, skip_hlu_0=False, lock=threading.Lock()):
         if self.has_hlu(lun_or_snap):
             raise ex.UnityResourceAlreadyAttachedError()
 
         if skip_hlu_0:
-            hlu_0 = self._get_host_lun(hlu=0)
-            if not hlu_0:
-                log.debug(
-                    'Try to skip the hlu number 0 by attaching a dummy lun.')
-                self._create_attach_dummy_lun()
+            with lock:
+                hlu_0 = self._get_host_lun(hlu=0)
+                if not hlu_0:
+                    log.debug('Try to skip the hlu number 0 by attaching a '
+                              'dummy lun.')
+                    self._create_attach_dummy_lun()
 
         try:
             lun_or_snap.attach_to(self)

@@ -341,10 +341,12 @@ class SynchronizedDecorator(object):
     lock_map = {}
 
     @classmethod
-    def synchronized(cls, obj=None):
+    def synchronized(cls, obj=None, lock=None):
         """ synchronize on obj if obj is supplied.
 
         :param obj: the obj to lock on.  if none, lock to the function
+        :param lock: the lock to be used. If none, ``threading.Lock`` will be
+            used.
         :return: return of the func.
         """
 
@@ -366,7 +368,8 @@ class SynchronizedDecorator(object):
         def wrap(f):
             @functools.wraps(f)
             def new_func(*args, **kw):
-                with get_lock(f, obj):
+                locker = lock if lock else get_lock(f, obj)
+                with locker:
                     return f(*args, **kw)
 
             return new_func
