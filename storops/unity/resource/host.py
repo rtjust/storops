@@ -20,12 +20,11 @@ import random
 from itertools import chain
 
 import six
-
 from retryz import retry
-
 from storops import exception as ex
 from storops.lib import common
 from storops.lib import converter
+from storops.lib.version import version
 from storops.unity.enums import HostTypeEnum, HostInitiatorTypeEnum
 from storops.unity.resource import UnityResource, UnityResourceList, \
     UnityAttributeResource
@@ -309,7 +308,8 @@ class UnityHost(UnityResource):
         host_lun = self.get_host_lun(resource, cg_member=cg_member)
         return host_lun if host_lun is None else host_lun.hlu
 
-    def add_initiator(self, uid, force_create=True, **kwargs):
+    def add_initiator(self, uid, force_create=True, enable_lunz=True,
+                      **kwargs):
         initiators = UnityHostInitiatorList.get(cli=self._cli,
                                                 initiator_id=uid)
 
@@ -332,8 +332,20 @@ class UnityHost(UnityResource):
             initiator = initiators.first_item
             log.debug('initiator {} is existed in unity system.'.format(uid))
 
-        initiator.modify(self)
+        if not enable_lunz:
+            initiator.modify(self, enable_lunz=False)
+        else:
+            initiator.modify(self)
         return initiator.update()
+
+    @version('>=4.2.1')
+    def disable_lunz(self, uids):
+        for uid in uids:
+            initiators = UnityHostInitiatorList.get(cli=self._cli,
+                                                    initiator_id=uid)
+            if initiators:
+                initiator = initiators.first_item
+                initiator.modify(self, enable_lunz=False)
 
     def delete_initiator(self, uid):
         initiators = []
@@ -472,9 +484,10 @@ class UnityHostInitiator(UnityResource):
         resp.raise_if_err()
         return cls(_id=resp.resource_id, cli=cli)
 
-    def modify(self, host, is_ignored=None, chap_user=None,
-               chap_secret=None, chap_secret_type=None):
-        req_body = {'host': host, 'isIgnored': is_ignored}
+    def _modify(self, host=None, is_ignored=None, chap_user=None,
+                chap_secret=None, chap_secret_type=None, is_lunz_enabled=None):
+        req_body = {'host': host, 'isIgnored': is_ignored,
+                    'isLunZEnabled': is_lunz_enabled}
 
         if self.type == HostInitiatorTypeEnum.ISCSI:
             req_body['chapUser'] = chap_user
@@ -486,6 +499,25 @@ class UnityHostInitiator(UnityResource):
                                 self.get_id(), **req_body)
         resp.raise_if_err()
         return resp
+
+    @version('<4.2.1')
+    def modify(self, host, is_ignored=None, chap_user=None,
+               chap_secret=None, chap_secret_type=None):
+        return self._modify(host=host, is_ignored=is_ignored,
+                            chap_user=chap_user, chap_secret=chap_secret,
+                            chap_secret_type=chap_secret_type)
+
+    @version('<4.2.1')
+    def modify(self, host, is_ignored=None, chap_user=None,
+               chap_secret=None, chap_secret_type=None, enable_lunz=True):
+        return self._modify(host=host, is_ignored=is_ignored,
+                            chap_user=chap_user, chap_secret=chap_secret,
+                            chap_secret_type=chap_secret_type,
+                            is_lunz_enabled=enable_lunz)
+
+    @version('>=4.2.1')
+    def disable_lunz(self):
+        return self._modify(is_lunz_enabled=False)
 
 
 class UnityHostInitiatorList(UnityResourceList):
