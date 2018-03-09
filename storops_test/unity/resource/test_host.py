@@ -498,6 +498,21 @@ class UnityHostTest(TestCase):
                         raises(UnityNoHluAvailableError))
 
     @patch_rest
+    def test_attach_exceptions_detach_dummy_lun(self):
+        host = UnityHost(cli=t_rest(), _id='Host_26')
+        lun = UnityLun(_id='sv_5611', cli=t_rest())
+        with mock.patch('storops.unity.resource.host.UnityHost.'
+                        '_attach_with_retry',
+                        new=mock.Mock(side_effect=UnityHluNumberInUseError)):
+            assert_that(calling(host.attach).with_args(lun, skip_hlu_0=True),
+                        raises(UnityHluNumberInUseError))
+        with mock.patch(
+                'storops.unity.resource.host.UnityHost._attach_with_retry',
+                new=mock.Mock(side_effect=UnityNoHluAvailableError)):
+            assert_that(calling(host.attach).with_args(lun, skip_hlu_0=True),
+                        raises(UnityNoHluAvailableError))
+
+    @patch_rest
     def test_attach_snap_skip_first_hlu(self):
         def f():
             host = UnityHost(cli=t_rest(), _id='Host_11')

@@ -1072,6 +1072,14 @@
       "url": "/api/instances/storageResource/sv_5611/action/modifyLun?compact=True",
       "body": {"lunParameters": {"hostAccess": []}},
       "response": "empty.json"
+    },
+    {
+      "url": "/api/instances/storageResource/sv_5612?compact=True",
+      "body": {
+        "forceSnapDeletion": false,
+        "forceVvolDeletion": false
+      },
+      "response": "empty.json"
     }
   ]
 }

@@ -192,6 +192,17 @@ class UnityHost(UnityResource):
             return ret
 
     def detach(self, lun_or_snap):
+        if self.host_luns:
+            # To detach the `dummy luns` which are attached via legacy storops.
+            dummy_lun_ids = [lun.get_id() for lun in self.host_luns.lun
+                             if lun.name == DUMMY_LUN_NAME]
+            if dummy_lun_ids:
+                from storops.unity.resource.lun import UnityLun
+                dummy_lun = UnityLun(cli=self._cli, _id=dummy_lun_ids[0])
+                try:
+                    dummy_lun.delete(None)
+                except ex.UnityException:
+                    pass
         return lun_or_snap.detach_from(self)
 
     def detach_alu(self, lun):
